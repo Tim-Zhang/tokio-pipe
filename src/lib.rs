@@ -142,14 +142,14 @@ impl PipeFd {
     }
 }
 
-impl Drop for PipeFd {
-    fn drop(&mut self) {
-        self.close().ok();
-    }
-}
-
 /// Pipe read
 pub struct PipeRead(PollEvented<PipeFd>);
+
+impl PipeRead {
+    pub fn shutdown(&mut self) -> io::Result<()> {
+        self.0.get_mut().close()
+    }
+}
 
 impl AsyncRead for PipeRead {
     fn poll_read(
