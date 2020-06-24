@@ -24,7 +24,7 @@ use std::ffi::c_void;
 use std::fmt;
 use std::io;
 use std::mem::{self, MaybeUninit};
-use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -190,6 +190,12 @@ impl IntoRawFd for PipeRead {
     }
 }
 
+impl FromRawFd for PipeRead {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        PipeRead(PollEvented::new(PipeFd(fd)).unwrap())
+    }
+}
+
 impl fmt::Debug for PipeRead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PipeRead({})", self.as_raw_fd())
@@ -210,6 +216,12 @@ impl IntoRawFd for PipeWrite {
         let fd = self.0.get_ref().0;
         mem::forget(self);
         fd
+    }
+}
+
+impl FromRawFd for PipeWrite {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        PipeWrite(PollEvented::new(PipeFd(fd)).unwrap())
     }
 }
 
