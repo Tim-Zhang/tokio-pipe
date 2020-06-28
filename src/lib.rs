@@ -40,6 +40,10 @@ const MAX_LEN: usize = <libc::c_int>::MAX as usize - 1;
 #[cfg(not(target_os = "macos"))]
 const MAX_LEN: usize = <libc::ssize_t>::MAX as usize;
 
+unsafe fn set_nonblocking(fd: RawFd) {
+    libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+}
+
 struct PipeFd(RawFd);
 
 impl Evented for PipeFd {
@@ -192,6 +196,7 @@ impl IntoRawFd for PipeRead {
 
 impl FromRawFd for PipeRead {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        set_nonblocking(fd);
         PipeRead(PollEvented::new(PipeFd(fd)).unwrap())
     }
 }
@@ -221,6 +226,7 @@ impl IntoRawFd for PipeWrite {
 
 impl FromRawFd for PipeWrite {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        set_nonblocking(fd);
         PipeWrite(PollEvented::new(PipeFd(fd)).unwrap())
     }
 }
