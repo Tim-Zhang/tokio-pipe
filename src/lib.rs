@@ -262,7 +262,7 @@ impl fmt::Debug for PipeWrite {
 
 fn sys_pipe() -> io::Result<(RawFd, RawFd)> {
     let mut pipefd = [0; 2];
-    let ret = unsafe { libc::pipe2(pipefd.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    let ret = unsafe { libc::pipe2(pipefd.as_mut_ptr(), libc::O_NONBLOCK) };
     if ret == -1 {
         return Err(io::Error::last_os_error());
     }
