@@ -43,7 +43,10 @@ unsafe fn set_nonblocking(fd: RawFd) {
     libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
 }
 
-struct PipeFd(RawFd);
+struct PipeFd {
+    fd: RawFd,
+    drop_close_fd: bool,
+}
 
 impl Evented for PipeFd {
     fn register(
@@ -53,7 +56,7 @@ impl Evented for PipeFd {
         interest: Ready,
         opts: PollOpt,
     ) -> io::Result<()> {
-        EventedFd(&self.0).register(poll, token, interest, opts)
+        EventedFd(&self.fd).register(poll, token, interest, opts)
     }
 
     fn reregister(
@@ -63,11 +66,11 @@ impl Evented for PipeFd {
         interest: Ready,
         opts: PollOpt,
     ) -> io::Result<()> {
-        EventedFd(&self.0).reregister(poll, token, interest, opts)
+        EventedFd(&self.fd).reregister(poll, token, interest, opts)
     }
 
     fn deregister(&self, poll: &MioPoll) -> io::Result<()> {
-        EventedFd(&self.0).deregister(poll)
+        EventedFd(&self.fd).deregister(poll)
     }
 }
 
@@ -75,7 +78,7 @@ impl io::Read for PipeFd {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let ret = unsafe {
             libc::read(
-                self.0,
+                self.fd,
                 buf.as_mut_ptr() as *mut c_void,
                 cmp::min(buf.len(), MAX_LEN),
             )
@@ -91,7 +94,7 @@ impl io::Write for PipeFd {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let ret = unsafe {
             libc::write(
-                self.0,
+                self.fd,
                 buf.as_ptr() as *mut c_void,
                 cmp::min(buf.len(), MAX_LEN),
             )
@@ -108,8 +111,22 @@ impl io::Write for PipeFd {
 }
 
 impl PipeFd {
+    fn new(fd: RawFd) -> Self {
+        Self {
+            fd,
+            drop_close_fd: true,
+        }
+    }
+
+    fn set_close_fd(&mut self) {
+        self.drop_close_fd = true;
+    }
+    fn unset_close_fd(&mut self) {
+        self.drop_close_fd = false;
+    }
+
     fn close(&mut self) -> io::Result<()> {
-        let ret = unsafe { libc::close(self.0) };
+        let ret = unsafe { libc::close(self.fd) };
         if ret == -1 {
             return Err(io::Error::last_os_error());
         }
@@ -119,12 +136,25 @@ impl PipeFd {
 
 impl Drop for PipeFd {
     fn drop(&mut self) {
-        self.close().ok();
+        if self.drop_close_fd {
+            self.close().ok();
+        }
     }
 }
 
 /// Pipe read
 pub struct PipeRead(PollEvented<PipeFd>);
+
+impl PipeRead {
+    /// Turn on drop_close_fd
+    pub fn set_close_fd(&mut self) {
+        self.0.get_mut().set_close_fd();
+    }
+    /// Turn off drop_close_fd
+    pub fn unset_close_fd(&mut self) {
+        self.0.get_mut().unset_close_fd();
+    }
+}
 
 impl AsyncRead for PipeRead {
     fn poll_read(
@@ -138,13 +168,13 @@ impl AsyncRead for PipeRead {
 
 impl AsRawFd for PipeRead {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.get_ref().0
+        self.0.get_ref().fd
     }
 }
 
 impl IntoRawFd for PipeRead {
     fn into_raw_fd(self) -> RawFd {
-        let fd = self.0.get_ref().0;
+        let fd = self.0.get_ref().fd;
         mem::forget(self);
         fd
     }
@@ -153,7 +183,7 @@ impl IntoRawFd for PipeRead {
 impl FromRawFd for PipeRead {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         set_nonblocking(fd);
-        PipeRead(PollEvented::new(PipeFd(fd)).unwrap())
+        PipeRead(PollEvented::new(PipeFd::new(fd)).unwrap())
     }
 }
 
@@ -166,15 +196,26 @@ impl fmt::Debug for PipeRead {
 /// Pipe write
 pub struct PipeWrite(PollEvented<PipeFd>);
 
+impl PipeWrite {
+    /// Turn on drop_close_fd
+    pub fn set_close_fd(&mut self) {
+        self.0.get_mut().set_close_fd();
+    }
+    /// Turn off drop_close_fd
+    pub fn unset_close_fd(&mut self) {
+        self.0.get_mut().unset_close_fd();
+    }
+}
+
 impl AsRawFd for PipeWrite {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.get_ref().0
+        self.0.get_ref().fd
     }
 }
 
 impl IntoRawFd for PipeWrite {
     fn into_raw_fd(self) -> RawFd {
-        let fd = self.0.get_ref().0;
+        let fd = self.0.get_ref().fd;
         mem::forget(self);
         fd
     }
@@ -183,7 +224,7 @@ impl IntoRawFd for PipeWrite {
 impl FromRawFd for PipeWrite {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         set_nonblocking(fd);
-        PipeWrite(PollEvented::new(PipeFd(fd)).unwrap())
+        PipeWrite(PollEvented::new(PipeFd::new(fd)).unwrap())
     }
 }
 
@@ -227,8 +268,8 @@ fn sys_pipe() -> io::Result<(RawFd, RawFd)> {
 pub fn pipe() -> io::Result<(PipeRead, PipeWrite)> {
     let (r, w) = sys_pipe()?;
     Ok((
-        PipeRead(PollEvented::new(PipeFd(r))?),
-        PipeWrite(PollEvented::new(PipeFd(w))?),
+        PipeRead(PollEvented::new(PipeFd::new(r))?),
+        PipeWrite(PollEvented::new(PipeFd::new(w))?),
     ))
 }
 
